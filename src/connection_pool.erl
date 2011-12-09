@@ -56,8 +56,18 @@ init([Name = {_PoolType, PoolName}, EndpointDetails]) ->
     TabName = get_proc_name(Name), 
     ets:new(TabName, [named_table, protected]),
     ets:insert(TabName, {{endpoint_details, PoolName}, EndpointDetails}),
-    self() ! spool_up,
-    {ok, #state{name = Name, pool = queue:new(), borrowed = dict:new()}}.
+    State = #state{name = Name, pool = queue:new(), borrowed = dict:new()},
+    {ok, spool_up(State)}.
+
+spool_up(State = #state{name = Name = {PoolType, _PoolName}, n = N}) ->
+    case N >= apply(PoolType, num_connections, []) of
+        true ->
+            State;
+        false ->
+            init_connection(Name),
+            timer:sleep(5),
+            spool_up(State#state{n = N + 1})
+    end.
 
 init_connection(Name = {PoolType, _PoolName}) ->
     Conn = {P, _M} = spawn_monitor(PoolType, initialize, [Name, fun conn_loop/1]),
@@ -107,17 +117,6 @@ handle_cast({give_back, Conn = {P, _M}},
 handle_info({connected, Conn}, State = #state{name = PoolName, pool = Pool, n = _N}) ->
     info_msg("~p connected (queue:len(Pool) -> ~p)", [PoolName, queue:len(Pool)]),
     {noreply, State#state{pool = queue:in(Conn, Pool)}};
-
-handle_info(spool_up,
-  State = #state{name = Name = {PoolType, _PoolName}, n = N}) ->
-    case N >= apply(PoolType, num_connections, []) of
-        true ->
-            {noreply, State};
-        false ->
-            init_connection(Name),
-            erlang:send_after(5, self(), spool_up),
-            {noreply, State#state{n = N + 1}}
-    end;
 
 handle_info({'DOWN', MonitorRef, process, Pid, Info},
   State = #state{name = PoolName, pool = Pool, n = _N, borrowed = Borrowed}) ->
