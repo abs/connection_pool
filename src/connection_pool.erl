@@ -176,7 +176,7 @@ run(Name = {_PoolType, _PoolName}, F) ->
                 F(Conn)
             catch
                 Y:Err ->
-                    error_msg("connection_pool error: ~p", [{Name, Y, F, Err}]),
+                    error_msg("connection_pool error: ~p", [{Name, Y, F, Err, erlang:get_stacktrace()}]),
                     throw(Err)
             after
                 gen_server:cast(ProcName, {give_back, ConnRef})
