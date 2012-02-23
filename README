@@ -75,6 +75,26 @@ get_foo_bar() ->
     end).
 
 
+POSTGRESQL POOL STARTED BY SUPERVISOR
+-------------------------------------
+psql_pool_specs() ->
+    PsqlNodes = [{'db:0', [{'master', ["127.0.0.1", "user", "pass", [{database, "db0"}]]}]}],
+    [psql_pool:spec(Details) || Details <- connection_pool_utils:pools(psql, PsqlNodes)].
+
+init([]) ->
+    {ok, {{one_for_one, 3, 40}, psql_pool_specs()}}.
+
+
+POSTGRESQL POOL STARTED DIRECTLY (WITHOUT SUPERVISOR)
+-----------------------------------------------------
+foo() ->
+    PsqlNodes = [{'db:0', [{'master', ["127.0.0.1", "user", "pass", [{database, "db0"}]]}]}],
+    [{Name, Details}] = connection_pool_utils:pools(psql, PsqlNodes),
+    {ok, Pool} = connection_pool:start_link({psql_pool, Name}, Details),
+    % do stuff
+    exit(Pool, normal).
+
+
 MYSQL
 -----
 -define(MYSQL_NODES, [{'db:0', [{'master', {{'host', '127.0.0.1'},
