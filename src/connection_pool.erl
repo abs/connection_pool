@@ -5,7 +5,7 @@
 -module(connection_pool).
 -behaviour(gen_server).
 
--import(error_logger, [error_msg/1, error_msg/2, info_msg/2]).
+-import(error_logger, [error_msg/1, error_msg/2, info_msg/2, info_msg/1]).
 
 -export([start_link/2]).
 
@@ -56,6 +56,7 @@ init([Name = {_PoolType, PoolName}, EndpointDetails]) ->
     TabName = get_proc_name(Name), 
     ets:new(TabName, [named_table, protected]),
     ets:insert(TabName, {{endpoint_details, PoolName}, EndpointDetails}),
+    process_flag(trap_exit, true),
     State = #state{name = Name, pool = queue:new(), borrowed = dict:new()},
     {ok, spool_up(State)}.
 
@@ -122,8 +123,12 @@ handle_cast({give_back, Conn = {P, _M}},
     {noreply, State#state{pool = NewPool,
                           borrowed = dict:erase(Conn, Borrowed)}}.
 
-handle_info({connected, Conn}, State = #state{name = PoolName, pool = Pool, n = _N}) ->
-    info_msg("~p connected (queue:len(Pool) -> ~p)", [PoolName, queue:len(Pool)]),
+handle_info({connected, Conn}, State = #state{name = PoolName, pool = Pool, n = N}) ->
+    case queue:len(Pool) + 1 of
+        N ->
+            info_msg("~p: ~p connections at your service~n", [PoolName, N]);
+        _ -> ok
+    end,
     {noreply, State#state{pool = queue:in(Conn, Pool)}};
 
 handle_info({'DOWN', MonitorRef, process, Pid, Info},
@@ -141,8 +146,9 @@ handle_info({init_connection, PoolName}, State) ->
     init_connection(PoolName),
     {noreply, State};
 
-handle_info({'EXIT', _Pid, Reason}, State) ->
-    {stop, Reason, State}.
+
+handle_info({_From, closed}, State) ->
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.
@@ -157,8 +163,9 @@ handle_conn_loop_msg(Loop, Msg, Details = {{PoolType, _PoolName}, Conn, ConnMoni
         {From, on_connected, C} ->
             From ! {connected, C},
             Loop(Details);
-        {_From, close} ->
+        {From, close} ->
             PoolType:close({Conn, ConnMonitorRef}),    
+            From ! {self(), closed},
             exit(close);
         {'DOWN', ConnMonitorRef, process, Conn, Info} ->
             exit({connection_exit, ConnMonitorRef, Conn, Info})
@@ -197,4 +204,3 @@ run(Name = {_PoolType, _PoolName}, F) ->
 close(Pid) ->
     gen_server:call(Pid, close),
     exit(Pid, normal).
-
