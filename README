@@ -92,7 +92,7 @@ foo() ->
     [{Name, Details}] = connection_pool_utils:pools(psql, PsqlNodes),
     {ok, Pool} = connection_pool:start_link({psql_pool, Name}, Details),
     % do stuff
-    exit(Pool, normal).
+    connection_pool:close(Pool).
 
 
 MYSQL

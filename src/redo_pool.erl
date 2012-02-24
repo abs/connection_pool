@@ -1,6 +1,6 @@
 -module(redo_pool).
 
--export([initialize/2,
+-export([initialize/2, close/1,
          num_connections/0,
          spec/1, spec/2]).
 
@@ -49,3 +49,7 @@ life_loop(Details = {Name, Conn, ConnMonitorRef}) ->
         <<"PONG">> = redo:cmd(Conn, ["PING"]),
         life_loop(Details)
     end.
+
+close({Conn, MonitorRef}) ->
+    erlang:demonitor(MonitorRef),
+    exit(Conn, close).

@@ -12,7 +12,7 @@
 -export([init/1, handle_call/3, handle_cast/2,
          handle_info/2, terminate/2, code_change/3]).
 
--export([run/2]).
+-export([run/2, close/1]).
 
 -export([handle_conn_loop_msg/3]).
 
@@ -90,6 +90,14 @@ handle_call(get_state, _From,
              {queue, queue:len(P)},
              {borrowed, dict:size(Borrowed)}], State};
 
+handle_call(close, _From,
+  State = #state{pool = P, borrowed = Borrowed}) ->
+    lists:foreach(fun({Conn, MonitorRef}) ->
+        erlang:demonitor(MonitorRef),
+        Conn ! {self(), close}
+    end, lists:append([dict:fetch_keys(Borrowed), queue:to_list(P)])),
+    {reply, closed, State};
+
 handle_call(borrow, _From,
   State = #state{pool = P, n = _N, borrowed = Borrowed}) ->
     case queue:out(P) of
@@ -141,7 +149,7 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
-handle_conn_loop_msg(Loop, Msg, Details = {_Name, Conn, ConnMonitorRef}) ->
+handle_conn_loop_msg(Loop, Msg, Details = {{PoolType, _PoolName}, Conn, ConnMonitorRef}) ->
     case Msg of
         {From, connection_please} ->
             From ! {connection, Conn},
@@ -149,6 +157,9 @@ handle_conn_loop_msg(Loop, Msg, Details = {_Name, Conn, ConnMonitorRef}) ->
         {From, on_connected, C} ->
             From ! {connected, C},
             Loop(Details);
+        {_From, close} ->
+            PoolType:close({Conn, ConnMonitorRef}),    
+            exit(close);
         {'DOWN', ConnMonitorRef, process, Conn, Info} ->
             exit({connection_exit, ConnMonitorRef, Conn, Info})
     end.
@@ -182,3 +193,8 @@ run(Name = {_PoolType, _PoolName}, F) ->
                 gen_server:cast(ProcName, {give_back, ConnRef})
             end
     end.
+
+close(Pid) ->
+    gen_server:call(Pid, close),
+    exit(Pid, normal).
+

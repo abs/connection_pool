@@ -4,7 +4,7 @@
 
 -module(psql_pool).
 
--export([initialize/2, num_connections/0,
+-export([initialize/2, close/1, num_connections/0,
          spec/1, spec/2]).
 
 
@@ -31,3 +31,7 @@ initialize(Name, Loop) ->
     Conn = connect(Name),
     MonitorRef = erlang:monitor(process, Conn),
     Loop({Name, Conn, MonitorRef}).
+
+close({Conn, MonitorRef}) ->
+    erlang:demonitor(MonitorRef),
+    ok = pgsql:close(Conn).
