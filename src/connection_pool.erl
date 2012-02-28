@@ -112,12 +112,16 @@ handle_call(borrow, _From,
 
 handle_cast({give_back, Conn = {P, _M}},
   State = #state{pool = Pool, borrowed = Borrowed}) ->
-    Pending = dict:fetch(Conn, Borrowed),
-    case lists:member(reconnect_upon_return, Pending) of
-        true ->
-            P ! {self(), reconnect};
-        false ->
-            ok
+    case dict:find(Conn, Borrowed) of
+        {ok, Pending} ->
+            case lists:member(reconnect_upon_return, Pending) of
+                true ->
+                    P ! {self(), reconnect};
+                false ->
+                    ok
+            end;
+        error -> 
+            P ! {self(), reconnect}
     end,
     NewPool = queue:in(Conn, Pool),
     {noreply, State#state{pool = NewPool,
@@ -150,7 +154,8 @@ handle_info({init_connection, PoolName}, State) ->
 handle_info({_From, closed}, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(Reason, #state{name = PoolName}) ->
+    info_msg("connection_pool ~p exiting with reason ~p~n", [{self(), PoolName}, Reason]),
     ok.
 
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
