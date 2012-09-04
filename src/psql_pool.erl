@@ -7,7 +7,6 @@
 -export([initialize/2, close/1, num_connections/0,
          spec/1, spec/2]).
 
-
 num_connections() -> 15.
 
 spec(Module, {Name, Details}) ->
@@ -19,8 +18,8 @@ spec(Details) ->
     spec(?MODULE, Details).
 
 connect(Name) ->
-    Details = connection_pool:endpoint_details(Name), 
-    case apply(pgsql, connect, Details) of
+    {conn_opts, ConnOpts} = lists:keyfind(conn_opts, 1, connection_pool:endpoint_details(Name)),
+    case apply(pgsql, connect, ConnOpts) of
         {ok, Conn} ->
             Conn;
         Err ->
@@ -29,9 +28,8 @@ connect(Name) ->
 
 initialize(Name, Loop) ->
     Conn = connect(Name),
-    MonitorRef = erlang:monitor(process, Conn),
-    Loop({Name, Conn, MonitorRef}).
+    true = link(Conn),
+    Loop({Name, Conn}).
 
-close({Conn, MonitorRef}) ->
-    erlang:demonitor(MonitorRef),
+close(Conn) ->
     ok = pgsql:close(Conn).

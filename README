@@ -12,7 +12,6 @@ Goals:
 - Assign symbolic names to pools (e.g. 'redis.master', 'redis.slave:0', 'redis.slave:1').
 - Return 'dead_enpoint' if all connections to an endpoint go away.  This allows the caller to call another endpoint or return acceptable empty results.
 - Try to re-establish dead connections.
-- Support reassinging endpoint details on a running system. 
 - Make it easy to support new types of endpoints.
 
 
@@ -34,31 +33,21 @@ DEFINING ENDPOINTS
 Example of a set of master-slaves endpoint definitions for Redis:
 
 -define(REDIS_NODES, [
-    {'external:0', [{'master', {"127.0.0.1", 6479}}, {'slaves', [{"127.0.0.1", 6480}]}]},
-    {'default:0', [{'master', {"127.0.0.1", 6579}}, {'slaves', [{"127.0.0.1", 6580}]}]},
-    {'default:1', [{'master', {"127.0.0.1", 6679}}, {'slaves', [{"127.0.0.1", 6680}]}]},
-    {'global:0', [{'master', {"127.0.0.1", 6779}}, {'slaves', [{"127.0.0.1", 6780}]}]}
+    {'redis:0', [{max_conns, 4}, {'conn_opts', {'192.168.0.10', 6379}}]},
+    {'redis:1', [{max_conns, 4}, {'conn_opts', {'192.168.0.11', 6379}}]},
+    {'redis:2', [{max_conns, 4}, {'conn_opts', {'192.168.0.12', 6379}}]},
+    {'redis:3', [{max_conns, 4}, {'conn_opts', {'192.168.0.13', 6379}}]}
 ]).
 
 
 GENERATING CHILD SPECS
 ----------------------
 redo_pool_specs() ->
-    [redo_pool:spec(Details) || Details <- connection_pool_utils:pools(redis, ?REDIS_NODES)]. 
+    [redo_pool:spec(Details) || Details <- ?REDIS_NODES].
 
 % supervisor
 init([]) ->
     {ok, {{one_for_one, 3, 40}, redo_pool_specs()}}.
-
-
-OVERRIDING DEFAULT MODULES
---------------------------
--module(my_redis_pool).
--extends(redo_pool).
--export([num_connections/0]).
-
-% Default is 5, but we want 10.
-num_connections() -> 10.
 
 
 BASIC USAGE
@@ -71,15 +60,15 @@ get_foo_bar() ->
         redo:cmd(C, [
             [<<"get">>, <<"foo">>],
             [<<"get">>, <<"bar">>]
-        ]) 
+        ])
     end).
 
 
 POSTGRESQL POOL STARTED BY SUPERVISOR
 -------------------------------------
 psql_pool_specs() ->
-    PsqlNodes = [{'db:0', [{'master', ["127.0.0.1", "user", "pass", [{database, "db0"}]]}]}],
-    [psql_pool:spec(Details) || Details <- connection_pool_utils:pools(psql, PsqlNodes)].
+    PsqlNodes = [{'db:0', [{max_conns, 2}, {conn_opts, ["127.0.0.1", "user", "pass", [{database, "db0"}]]}]}],
+    [psql_pool:spec(Details) || Details <- PsqlNodes].
 
 init([]) ->
     {ok, {{one_for_one, 3, 40}, psql_pool_specs()}}.
@@ -88,23 +77,7 @@ init([]) ->
 POSTGRESQL POOL STARTED DIRECTLY (WITHOUT SUPERVISOR)
 -----------------------------------------------------
 foo() ->
-    PsqlNodes = [{'db:0', [{'master', ["127.0.0.1", "user", "pass", [{database, "db0"}]]}]}],
-    [{Name, Details}] = connection_pool_utils:pools(psql, PsqlNodes),
+    [{PoolName, EndpointDetails}] = [{'db:0', [{max_conns, 1}, {conn_opts, ["127.0.0.1", "user", "pass", [{database, "db0"}]]}]}],
     {ok, Pool} = connection_pool:start_link({psql_pool, Name}, Details),
     % do stuff
     connection_pool:close(Pool).
-
-
-MYSQL
------
--define(MYSQL_NODES, [{'db:0', [{'master', {{'host', '127.0.0.1'},
-                                            {'name', 'foo0'},
-                                            {'password', 'foo0p4ss'},
-                                            {'port', '3306'},
-                                            {'user', 'mysqlu'}}
-                                }]}]).
-
-mysql_pool_specs() ->
-    [mysql_pool:spec({Name, mysql_pool:details(Details)}) ||
-        {Name, Details} <-
-            connection_pool_utils:pools(mysql, ?MYSQL_NODES)].
