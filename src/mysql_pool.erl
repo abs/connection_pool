@@ -55,9 +55,9 @@ spec(Details) ->
     spec(?MODULE, Details).
     
 connect(Name) ->
-    Details = connection_pool:endpoint_details(Name), 
+    {conn_opts, ConnOpts} = lists:keyfind(conn_opts, 1, connection_pool:endpoint_details(Name)),
     Encoding = undefined,
-    case apply(mysql2_conn, start_link, Details ++ [Encoding]) of
+    case apply(mysql2_conn, start_link, ConnOpts ++ [Encoding]) of
         {ok, Conn} ->
             Conn;
         Err ->
@@ -66,17 +66,16 @@ connect(Name) ->
 
 initialize(Name) ->
     Conn = connect(Name),
-    MonitorRef = erlang:monitor(process, Conn),
-    life_loop({Name, Conn, MonitorRef}).
+    true = link(Conn),
+    life_loop({Name, Conn}).
 
 initialize(Name, _Loop) ->
     initialize(Name).
 
-life_loop(Details = {Name, Conn, ConnMonitorRef}) ->
+life_loop(Details = {Name, Conn}) ->
     receive Msg ->
         case Msg of
             {_From, reconnect} ->
-                erlang:demonitor(ConnMonitorRef),
                 true = exit(Conn, normal),
                 initialize(Name);
             _ ->
@@ -85,10 +84,14 @@ life_loop(Details = {Name, Conn, ConnMonitorRef}) ->
                                                      Details)
         end
     after ?PING_INTERVAL ->
-        {data, _} = mysql2_conn:fetch(Conn, <<"select true">>, self()),
+        case mysql2_conn:fetch(Conn, <<"select true">>, self()) of
+            {data, _} ->
+                ok;
+            {error, Reason} ->
+                exit(Conn, {error, Reason})
+        end,
         life_loop(Details)
     end.
 
-close({Conn, MonitorRef}) ->
-    erlang:demonitor(MonitorRef),
+close(Conn) ->
     exit(Conn, close).
