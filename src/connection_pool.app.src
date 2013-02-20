@@ -1,0 +1,10 @@
+{application, connection_pool,
+ [{description, "Generic connection pool manager for Erlang applications"},
+  {vsn, git},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {registered, []},
+  {env, [ ]}
+ ]}.
